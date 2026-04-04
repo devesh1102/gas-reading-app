@@ -2,6 +2,7 @@ import uuid
 import logging
 from django.conf import settings
 from azure.storage.blob import BlobServiceClient, ContentSettings
+from azure.identity import DefaultAzureCredential
 
 logger = logging.getLogger('submissions')
 
@@ -12,9 +13,10 @@ def upload_meter_image(file_obj, original_filename: str) -> str:
 
     logger.debug(f'Uploading image | blob={blob_name} | account={settings.AZURE_STORAGE_ACCOUNT_NAME} | container={settings.AZURE_BLOB_CONTAINER_NAME}')
 
+    # Uses Managed Identity on App Service; falls back to `az login` locally
     client = BlobServiceClient(
         account_url=f"https://{settings.AZURE_STORAGE_ACCOUNT_NAME}.blob.core.windows.net",
-        credential=settings.AZURE_STORAGE_ACCOUNT_KEY,
+        credential=DefaultAzureCredential(),
     )
 
     blob_client = client.get_blob_client(

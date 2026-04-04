@@ -107,11 +107,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Azure Blob Storage
 AZURE_STORAGE_ACCOUNT_NAME = config('AZURE_STORAGE_ACCOUNT_NAME', default='')
-AZURE_STORAGE_ACCOUNT_KEY = config('AZURE_STORAGE_ACCOUNT_KEY', default='')
-AZURE_BLOB_CONTAINER_NAME = config('AZURE_BLOB_CONTAINER_NAME', default='meter-images')
+AZURE_BLOB_CONTAINER_NAME  = config('AZURE_BLOB_CONTAINER_NAME', default='meter-images')
 
-# Azure Communication Services
-AZURE_COMMUNICATION_CONNECTION_STRING = config('AZURE_COMMUNICATION_CONNECTION_STRING', default='')
+# Azure Communication Services — endpoint only, no key (Managed Identity)
+AZURE_COMMUNICATION_ENDPOINT = config('AZURE_COMMUNICATION_ENDPOINT', default='')
 EMAIL_SENDER_ADDRESS = config('EMAIL_SENDER_ADDRESS', default='')
 
 # OTP config
