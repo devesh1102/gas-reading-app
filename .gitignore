@@ -1,0 +1,64 @@
+# ============================================================
+# Secrets & credentials — NEVER commit these
+# ============================================================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ============================================================
+# Python / Django
+# ============================================================
+backend/venv/
+backend/.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Django runtime files
+backend/db.sqlite3
+backend/staticfiles/
+backend/mediafiles/
+backend/logs/
+*.log
+
+# ============================================================
+# Node / React (frontend)
+# ============================================================
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ============================================================
+# Editor & OS
+# ============================================================
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ============================================================
+# Azure / cloud config
+# ============================================================
+*.publishsettings
+.azure/
