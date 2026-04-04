@@ -2,10 +2,37 @@ from pathlib import Path
 from decouple import config
 from datetime import timedelta
 import dj_database_url
+import os
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = config('SECRET_KEY', default='dev-secret-key-change-in-prod')
+
+def _get_keyvault_secret(name: str, fallback: str = '') -> str:
+    """
+    Fetch a secret from Azure Key Vault when AZURE_KEYVAULT_URL is set.
+    Falls back to the local .env value otherwise.
+    """
+    vault_url = config('AZURE_KEYVAULT_URL', default='')   # reads .env via decouple
+    if vault_url:
+        try:
+            from azure.keyvault.secrets import SecretClient
+            from azure.identity import DefaultAzureCredential
+            client = SecretClient(vault_url=vault_url, credential=DefaultAzureCredential())
+            value = client.get_secret(name).value
+            print(f'[KeyVault] ✅ Fetched secret: {name}')
+            return value
+        except Exception as e:
+            print(f'[KeyVault] ❌ Failed to fetch {name}: {e}')
+            raise RuntimeError(
+                f"Key Vault is configured (AZURE_KEYVAULT_URL={vault_url}) "
+                f"but failed to fetch secret '{name}'. "
+                f"Run 'az login' and ensure you have 'Key Vault Secrets User' role. "
+                f"Error: {e}"
+            )
+    return config(name.replace('-', '_'), default=fallback)
+
+
+SECRET_KEY = _get_keyvault_secret('DJANGO-SECRET-KEY', fallback=config('SECRET_KEY', default='dev-secret-key-change-in-prod'))
 DEBUG = config('DEBUG', default=True, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
 
@@ -58,13 +85,32 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 import dj_database_url
 
-DATABASES = {
-    'default': dj_database_url.config(
-        default=config('DATABASE_URL', default='sqlite:///db.sqlite3'),
-        conn_max_age=600,
-        ssl_require=False,
-    )
-}
+# Password fetched from Key Vault (App Service) or .env (local dev)
+_db_password = _get_keyvault_secret('DB-PASSWORD', fallback='')
+
+if _db_password:
+    # Use dict form — avoids URL-encoding issues with special chars like @ in password
+    DATABASES = {
+        'default': {
+            'ENGINE':   'django.db.backends.postgresql',
+            'NAME':     'gasreading',
+            'USER':     'gasadmin',
+            'PASSWORD': _db_password,
+            'HOST':     'gasreading-db-v2.postgres.database.azure.com',
+            'PORT':     '5432',
+            'OPTIONS':  {'sslmode': 'require'},
+            'CONN_MAX_AGE': 600,
+        }
+    }
+else:
+    # Fallback: parse DATABASE_URL from .env (local dev without Key Vault)
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=config('DATABASE_URL', default='sqlite:///db.sqlite3'),
+            conn_max_age=600,
+            ssl_require=False,
+        )
+    }
 
 # Tell Django to use our custom User model instead of the built-in one
 AUTH_USER_MODEL = 'authentication.User'
