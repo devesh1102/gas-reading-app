@@ -157,6 +157,9 @@ STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
+# Serve React build assets (JS/CSS) at root level via WhiteNoise
+WHITENOISE_ROOT = BASE_DIR / 'frontend_build'
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Azure Blob Storage

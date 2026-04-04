@@ -5,6 +5,7 @@ on:
     branches: [ master ]
     paths:
       - 'backend/**'
+      - 'frontend/**'
       - '.github/workflows/deploy-backend.yml'
   workflow_dispatch:
 
@@ -16,15 +17,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build React frontend
+        working-directory: frontend
+        env:
+          VITE_API_URL: https://gasreading-backend.azurewebsites.net/api
+        run: |
+          npm install
+          npm run build
+
+      - name: Copy frontend build into Django
+        run: cp -r frontend/dist backend/frontend_build
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install dependencies into project
+      - name: Install Python dependencies into project
         working-directory: backend
-        run: |
-          pip install -r requirements.txt --target=".python_packages/lib/site-packages"
+        run: pip install -r requirements.txt --target=".python_packages/lib/site-packages"
 
       - name: Collect static files
         working-directory: backend

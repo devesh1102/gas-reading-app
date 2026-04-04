@@ -12,7 +12,8 @@ secrets/
 # Python / Django
 # ============================================================
 backend/venv/
-backend/.python_packages/backend/.venv/
+backend/.python_packages/
+backend/frontend_build/backend/.venv/
 __pycache__/
 *.py[cod]
 *.pyo
