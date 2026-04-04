@@ -11,8 +11,8 @@ secrets/
 # ============================================================
 # Python / Django
 # ============================================================
-backend.zip
-backend/.venv/
+backend/venv/
+backend/.python_packages/backend/.venv/
 __pycache__/
 *.py[cod]
 *.pyo
