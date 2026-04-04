@@ -10,14 +10,22 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 def _get_keyvault_secret(name: str, fallback: str = '') -> str:
     """
     Fetch a secret from Azure Key Vault when AZURE_KEYVAULT_URL is set.
-    Falls back to the local .env value otherwise.
+    - On App Service: uses ManagedIdentityCredential (fast, no probing)
+    - Locally: uses AzureCliCredential (from az login)
+    Falls back to .env if Key Vault URL not set.
     """
-    vault_url = config('AZURE_KEYVAULT_URL', default='')   # reads .env via decouple
+    vault_url = config('AZURE_KEYVAULT_URL', default='')
     if vault_url:
         try:
             from azure.keyvault.secrets import SecretClient
-            from azure.identity import DefaultAzureCredential
-            client = SecretClient(vault_url=vault_url, credential=DefaultAzureCredential())
+            # Use specific credential — avoids DefaultAzureCredential probing 7 providers
+            if os.environ.get('IDENTITY_ENDPOINT'):   # running on App Service
+                from azure.identity import ManagedIdentityCredential
+                credential = ManagedIdentityCredential()
+            else:                                      # running locally
+                from azure.identity import AzureCliCredential
+                credential = AzureCliCredential()
+            client = SecretClient(vault_url=vault_url, credential=credential)
             value = client.get_secret(name).value
             print(f'[KeyVault] ✅ Fetched secret: {name}')
             return value
