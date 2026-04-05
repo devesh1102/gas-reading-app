@@ -1,6 +1,8 @@
-name: Deploy Backend to Azure App Service
+name: Deploy to Azure App Service
 
 on:
+  push:
+    branches: [master]
   workflow_dispatch:
 
 jobs:
@@ -8,35 +10,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # ── 1. Checkout ─────────────────────────────────────────────────────────
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # ── 2. Build React frontend ──────────────────────────────────────────────
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
 
       - name: Build React frontend
         working-directory: frontend
         env:
           VITE_API_URL: https://gasreading-backend.azurewebsites.net/api
-        run: |
-          npm install
-          npm run build
+        run: npm run build
 
-      - name: Copy frontend build into Django
-        run: cp -r frontend/dist backend/frontend_build
-
+      # ── 3. Collect Django static files ──────────────────────────────────────
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
 
-      - name: Install Python dependencies into project
+      - name: Install Python dependencies
         working-directory: backend
-        run: pip install -r requirements.txt --target=".python_packages/lib/site-packages"
+        run: pip install -r requirements.txt
 
-      - name: Collect static files
+      - name: Copy frontend build and collect static files
         working-directory: backend
         env:
           SECRET_KEY: placeholder-for-collectstatic
@@ -45,12 +53,95 @@ jobs:
           AZURE_BLOB_CONTAINER_NAME: meter-images
           AZURE_COMMUNICATION_ENDPOINT: https://gasreading-acs.unitedstates.communication.azure.com
           EMAIL_SENDER_ADDRESS: placeholder@example.com
-          PYTHONPATH: .python_packages/lib/site-packages
-        run: python manage.py collectstatic --no-input
+        run: |
+          cp -r ../frontend/dist ./frontend_build
+          python manage.py collectstatic --no-input
 
-      - name: Deploy to Azure App Service
-        uses: azure/webapps-deploy@v3
+      # ── 4. Login to Azure ────────────────────────────────────────────────────
+      - name: Azure login
+        uses: azure/login@v2
         with:
-          app-name: gasreading-backend
-          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
-          package: backend
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      # ── 5. Create and deploy zip via Kudu (triggers Oryx pip install) ────────
+      # Using Linux zip (forward slashes) fixes the Windows Compress-Archive
+      # backslash path issue that prevented files being updated in wwwroot.
+      - name: Create deployment zip
+        working-directory: backend
+        run: |
+          zip -r /tmp/deploy.zip . \
+            --exclude "*/venv/*" \
+            --exclude "*/__pycache__/*" \
+            --exclude "*.pyc" \
+            --exclude "*/frontend_build/*" \
+            --exclude "*/db.sqlite3" \
+            --exclude "*/.env" \
+            --exclude "*/logs/*" \
+            --exclude "*/.python_packages/*" \
+            --exclude "*/antenv/*"
+
+      - name: Deploy zip to App Service
+        run: |
+          az webapp deployment source config-zip \
+            --resource-group gas-reading-app-rg \
+            --name gasreading-backend \
+            --src /tmp/deploy.zip
+
+      # ── 6. Upload staticfiles via Kudu VFS ───────────────────────────────────
+      # Oryx may not extract staticfiles subdirectories correctly from the zip.
+      # Uploading directly via Kudu VFS ensures WhiteNoise has all files at startup.
+      - name: Upload staticfiles via Kudu VFS
+        working-directory: backend
+        run: |
+          KUDU_USER=$(az webapp deployment list-publishing-credentials \
+            --name gasreading-backend \
+            --resource-group gas-reading-app-rg \
+            --query publishingUserName -o tsv)
+          KUDU_PASS=$(az webapp deployment list-publishing-credentials \
+            --name gasreading-backend \
+            --resource-group gas-reading-app-rg \
+            --query publishingPassword -o tsv)
+          KUDU_BASE="https://gasreading-backend.scm.azurewebsites.net/api/vfs/site/wwwroot"
+
+          upload_file() {
+            local file="$1"
+            local remote_path="$2"
+            local url="$KUDU_BASE/$remote_path"
+            local etag
+            etag=$(curl -s -I -u "$KUDU_USER:$KUDU_PASS" "$url" \
+              | grep -i etag | awk '{print $2}' | tr -d '\r')
+            if [ -n "$etag" ]; then
+              curl -s -o /dev/null -X PUT -u "$KUDU_USER:$KUDU_PASS" \
+                -H "If-Match: $etag" \
+                --data-binary "@$file" "$url"
+            else
+              curl -s -o /dev/null -X PUT -u "$KUDU_USER:$KUDU_PASS" \
+                --data-binary "@$file" "$url"
+            fi
+            echo "Uploaded: $remote_path"
+          }
+
+          find staticfiles -type f | while read -r file; do
+            upload_file "$file" "$file"
+          done
+
+      # ── 7. Restart so WhiteNoise picks up new static files ───────────────────
+      - name: Restart App Service
+        run: |
+          az webapp restart \
+            --resource-group gas-reading-app-rg \
+            --name gasreading-backend
+
+      # ── 8. Health check ──────────────────────────────────────────────────────
+      - name: Health check
+        run: |
+          echo "Waiting for app to start..."
+          sleep 30
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            https://gasreading-backend.azurewebsites.net/)
+          echo "Home page status: $STATUS"
+          if [ "$STATUS" != "200" ]; then
+            echo "Health check failed — app returned $STATUS"
+            exit 1
+          fi
+          echo "Deploy successful!"
