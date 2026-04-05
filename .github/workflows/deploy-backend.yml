@@ -137,9 +137,10 @@ jobs:
         run: |
           echo "Waiting for app to start..."
           sleep 30
+          RESPONSE=$(curl -s https://gasreading-backend.azurewebsites.net/health/)
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            https://gasreading-backend.azurewebsites.net/)
-          echo "Home page status: $STATUS"
+            https://gasreading-backend.azurewebsites.net/health/)
+          echo "Health: $RESPONSE (HTTP $STATUS)"
           if [ "$STATUS" != "200" ]; then
             echo "Health check failed — app returned $STATUS"
             exit 1
