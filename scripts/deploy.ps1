@@ -125,6 +125,49 @@ az webapp deployment source config-zip `
 
 if ($LASTEXITCODE -ne 0) { Write-Fail "Deploy failed" }
 
+# =============================================================================
+# STEP 5 — Upload staticfiles via Kudu VFS
+# Compress-Archive uses Windows backslash paths which Linux can't extract into
+# subdirectories correctly. We upload staticfiles directly via the Kudu REST API
+# so WhiteNoise has the correct files when Django starts after Oryx restarts.
+# =============================================================================
+Write-Step "Uploading staticfiles via Kudu VFS (fixes Windows backslash path issue)..."
+
+$publishCreds = az webapp deployment list-publishing-credentials `
+    --name $APP_SERVICE_NAME `
+    --resource-group $RESOURCE_GROUP `
+    --query "[publishingUserName, publishingPassword]" -o tsv | Out-String
+$kuduUser = ($publishCreds -split "`n")[0].Trim()
+$kuduPass = ($publishCreds -split "`n")[1].Trim()
+$base64Auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("${kuduUser}:${kuduPass}"))
+$kuduBase = "https://$APP_SERVICE_NAME.scm.azurewebsites.net/api/vfs/site/wwwroot"
+
+function Kudu-Upload($localPath, $remotePath) {
+    $headers = @{ Authorization = "Basic $base64Auth" }
+    $remoteUrl = "$kuduBase/$remotePath"
+
+    # Get ETag if file exists (required for updates)
+    try {
+        $head = Invoke-WebRequest -Uri $remoteUrl -Method Head -Headers $headers -ErrorAction Stop
+        $etag = $head.Headers.ETag
+        $headers["If-Match"] = $etag
+    } catch { <# new file — no ETag needed #> }
+
+    Invoke-RestMethod -Uri $remoteUrl -Method Put -Headers $headers `
+        -InFile $localPath -ContentType "application/octet-stream" | Out-Null
+    Write-OK "Uploaded: $remotePath"
+}
+
+$staticfilesDir = ".\staticfiles"
+Get-ChildItem -Path $staticfilesDir -Recurse -File | ForEach-Object {
+    $relativePath = $_.FullName.Substring((Resolve-Path $staticfilesDir).Path.Length + 1).Replace('\', '/')
+    Kudu-Upload $_.FullName "staticfiles/$relativePath"
+}
+
+Write-Step "Restarting App Service so WhiteNoise picks up new static files..."
+az webapp restart --name $APP_SERVICE_NAME --resource-group $RESOURCE_GROUP | Out-Null
+Write-OK "Restarted"
+
 Pop-Location
 
 Write-Host ""
