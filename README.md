@@ -1,5 +1,9 @@
 # Gas Reading App
 
+**Live app:** https://gasreading-backend.azurewebsites.net
+
+> This is a personal learning project built to explore full-stack development with Django, React, and Azure cloud services.
+
 A web application for residents to submit monthly gas meter photos and for admins to review and record the readings.
 
 ## What it does
