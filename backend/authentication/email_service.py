@@ -1,8 +1,8 @@
 from django.conf import settings
 from azure.communication.email import EmailClient
-from azure.identity import DefaultAzureCredential
 import threading
 import logging
+import os
 
 logger = logging.getLogger('authentication')
 
@@ -18,10 +18,17 @@ def _send_async(client, message, to_email):
 
 
 def send_otp_email(to_email: str, otp_code: str) -> None:
-    logger.debug(f'Connecting to ACS | endpoint={settings.AZURE_COMMUNICATION_ENDPOINT} | sender={settings.EMAIL_SENDER_ADDRESS}')
+    logger.debug(f'Connecting to ACS | endpoint={settings.AZURE_COMMUNICATION_ENDPOINT}')
 
-    # Uses Managed Identity on App Service; falls back to `az login` locally
-    client = EmailClient(settings.AZURE_COMMUNICATION_ENDPOINT, DefaultAzureCredential())
+    # Use specific credential — avoids DefaultAzureCredential probing multiple providers
+    if os.environ.get('IDENTITY_ENDPOINT'):   # running on App Service
+        from azure.identity import ManagedIdentityCredential
+        credential = ManagedIdentityCredential()
+    else:                                      # running locally via az login
+        from azure.identity import AzureCliCredential
+        credential = AzureCliCredential()
+
+    client = EmailClient(settings.AZURE_COMMUNICATION_ENDPOINT, credential)
 
     message = {
         "senderAddress": settings.EMAIL_SENDER_ADDRESS,

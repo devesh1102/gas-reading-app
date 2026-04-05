@@ -48,7 +48,7 @@ class VerifyOTPView(APIView):
         serializer = VerifyOTPSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data['email']
-        code = serializer.validated_data['code']
+        code  = serializer.validated_data['code']
 
         logger.info(f'OTP verification attempt for email: {email}')
 

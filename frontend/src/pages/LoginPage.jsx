@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext'
 /**
  * Two-step login flow:
  * Step 1 — user enters email → we POST to /auth/request-otp/
- * Step 2 — user enters 6-digit OTP → we POST to /auth/verify-otp/
+ * Step 2 — user enters 8-character OTP → we POST to /auth/verify-otp/
  *           backend returns JWT tokens + profile status flags
  *           we store tokens and redirect accordingly
  */
@@ -41,7 +41,6 @@ export default function LoginPage() {
     try {
       const { data } = await verifyOTP(email, code)
       login(data)
-      // Redirect based on what the backend told us about this user
       if (!data.is_profile_complete) navigate('/setup')
       else if (data.is_admin)        navigate('/admin')
       else                           navigate('/upload')
@@ -82,10 +81,11 @@ export default function LoginPage() {
               type="text"
               placeholder="6-digit code"
               value={code}
-              onChange={(e) => setCode(e.target.value)}
-              maxLength={6}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              maxLength={8}
               required
               autoFocus
+              style={{ letterSpacing: '4px', textAlign: 'center' }}
             />
             <button type="submit" disabled={loading}>
               {loading ? 'Verifying…' : 'Verify OTP'}

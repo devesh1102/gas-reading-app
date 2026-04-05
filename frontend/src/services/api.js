@@ -62,8 +62,8 @@ api.interceptors.response.use(
 )
 
 // Auth endpoints
-export const requestOTP   = (email)               => api.post('/auth/request-otp/', { email })
-export const verifyOTP    = (email, code)          => api.post('/auth/verify-otp/', { email, code })
+export const requestOTP = (email)        => api.post('/auth/request-otp/', { email })
+export const verifyOTP  = (email, code)  => api.post('/auth/verify-otp/', { email, code })
 export const setupProfile = (flat_number, block_number) =>
   api.post('/auth/setup-profile/', { flat_number, block_number })
 export const getMe        = ()                     => api.get('/auth/me/')

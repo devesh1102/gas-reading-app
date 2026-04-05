@@ -2,7 +2,7 @@ from django.db import models
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.utils import timezone
 from django.conf import settings
-import random
+import secrets
 import string
 
 
@@ -75,11 +75,11 @@ class OTPToken(models.Model):
     def generate_for(cls, email):
         """
         Invalidate any existing unused OTPs for this email,
-        then create a fresh 6-digit OTP with a 5-minute expiry.
+        then create a fresh 8-character alphanumeric OTP with a 5-minute expiry.
         """
         cls.objects.filter(email=email, is_used=False).update(is_used=True)
 
-        code = ''.join(random.choices(string.digits, k=6))
+        code = ''.join(secrets.choice(string.digits) for _ in range(6))
         expiry = timezone.now() + timezone.timedelta(minutes=settings.OTP_EXPIRY_MINUTES)
         return cls.objects.create(email=email, code=code, expires_at=expiry)
 
@@ -90,7 +90,7 @@ class OTPToken(models.Model):
         Marks it as used so it can't be replayed.
         """
         try:
-            otp = cls.objects.get(email=email, code=code, is_used=False)
+            otp = cls.objects.get(email=email, code=code.upper(), is_used=False)
         except cls.DoesNotExist:
             raise ValueError('Invalid OTP')
 
@@ -103,4 +103,3 @@ class OTPToken(models.Model):
 
     def __str__(self):
         return f'{self.email} — {self.code}'
-

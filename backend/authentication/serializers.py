@@ -9,7 +9,7 @@ class RequestOTPSerializer(serializers.Serializer):
 
 class VerifyOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
-    code = serializers.CharField(max_length=6, min_length=6)
+    code  = serializers.CharField(max_length=6, min_length=6)
 
 
 class SetupProfileSerializer(serializers.Serializer):
