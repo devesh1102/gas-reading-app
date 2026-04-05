@@ -1,10 +1,14 @@
 # =============================================================================
 # deploy.ps1 — Full redeploy script for Gas Reading App
 #
-# Usage:
-#   .\scripts\deploy.ps1              → deploy both backend + frontend
-#   .\scripts\deploy.ps1 -Backend     → deploy backend only
-#   .\scripts\deploy.ps1 -Frontend    → deploy frontend only
+# Architecture: React is built and bundled INTO Django.
+#               Django (on Azure App Service) serves everything.
+#               Oryx handles pip install (SCM_DO_BUILD_DURING_DEPLOYMENT=true).
+#               React files go to staticfiles/ via collectstatic (Oryx keeps staticfiles/ in wwwroot).
+#
+# Usage (run from repo root):
+#   .\scripts\deploy.ps1          -> build React + deploy backend (default)
+#   .\scripts\deploy.ps1 -SkipBuild  -> skip React build (use existing frontend_build/)
 #
 # Prerequisites:
 #   - Azure CLI installed and logged in (az login)
@@ -13,27 +17,19 @@
 # =============================================================================
 
 param(
-    [switch]$Backend,
-    [switch]$Frontend
+    [switch]$SkipBuild
 )
 
-# If neither flag passed, deploy both
-if (-not $Backend -and -not $Frontend) {
-    $Backend  = $true
-    $Frontend = $true
-}
-
-# ── Azure resource names (change these if you rename anything) ──────────────
+# ── Azure resource names ──────────────────────────────────────────────────────
 $RESOURCE_GROUP   = "gas-reading-app-rg"
 $APP_SERVICE_NAME = "gasreading-backend"
-$STATIC_WEB_APP   = "gasreading-frontend"
 $BACKEND_DIR      = "$PSScriptRoot\..\backend"
 $FRONTEND_DIR     = "$PSScriptRoot\..\frontend"
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 function Write-Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
-function Write-OK($msg)   { Write-Host "    ✅ $msg" -ForegroundColor Green }
-function Write-Fail($msg) { Write-Host "    ❌ $msg" -ForegroundColor Red; exit 1 }
+function Write-OK($msg)   { Write-Host "    OK $msg" -ForegroundColor Green }
+function Write-Fail($msg) { Write-Host "    FAILED $msg" -ForegroundColor Red; exit 1 }
 
 # ── Verify Azure login ────────────────────────────────────────────────────────
 Write-Step "Checking Azure login..."
@@ -44,82 +40,93 @@ if ($LASTEXITCODE -ne 0) {
 Write-OK "Logged in as: $account"
 
 # =============================================================================
-# BACKEND DEPLOY
+# STEP 1 — Build React frontend (unless -SkipBuild)
 # =============================================================================
-if ($Backend) {
-    Write-Step "Deploying Django backend to App Service: $APP_SERVICE_NAME"
-
-    # 1. Collect static files (Django admin CSS/JS → staticfiles/)
-    Write-Step "Collecting static files..."
-    Push-Location $BACKEND_DIR
-    .\venv\Scripts\python manage.py collectstatic --no-input
-    if ($LASTEXITCODE -ne 0) { Write-Fail "collectstatic failed" }
-    Write-OK "Static files collected"
-
-    # 2. Zip the backend (excluding venv — App Service installs from requirements.txt)
-    Write-Step "Creating deployment zip..."
-    $zipPath = "$env:TEMP\gasreading-backend.zip"
-    if (Test-Path $zipPath) { Remove-Item $zipPath }
-
-    # Compress everything except venv, __pycache__, .env, db.sqlite3
-    $items = Get-ChildItem -Path . | Where-Object {
-        $_.Name -notin @('venv', '__pycache__', 'db.sqlite3', '.env')
-    }
-    Compress-Archive -Path $items.FullName -DestinationPath $zipPath -Force
-    Write-OK "Zip created: $zipPath"
-
-    # 3. Deploy zip to App Service
-    # az webapp deploy uploads the zip — App Service extracts it, installs requirements.txt,
-    # then runs startup.sh (our gunicorn command)
-    Write-Step "Uploading to Azure App Service..."
-    az webapp deploy `
-        --resource-group $RESOURCE_GROUP `
-        --name $APP_SERVICE_NAME `
-        --src-path $zipPath `
-        --type zip
-
-    if ($LASTEXITCODE -ne 0) { Write-Fail "Backend deploy failed" }
-    Write-OK "Backend deployed → https://$APP_SERVICE_NAME.azurewebsites.net"
-    Pop-Location
-}
-
-# =============================================================================
-# FRONTEND DEPLOY
-# =============================================================================
-if ($Frontend) {
-    Write-Step "Deploying React frontend to Static Web App: $STATIC_WEB_APP"
-
+if (-not $SkipBuild) {
+    Write-Step "Building React frontend..."
     Push-Location $FRONTEND_DIR
 
-    # 1. Install dependencies (in case package.json changed)
-    Write-Step "Installing npm dependencies..."
     npm install
     if ($LASTEXITCODE -ne 0) { Write-Fail "npm install failed" }
 
-    # 2. Build React for production
-    # Vite reads .env and bakes VITE_API_URL into the bundle at build time
-    Write-Step "Building React app..."
+    $env:VITE_API_URL = "https://gasreading-backend.azurewebsites.net/api"
     npm run build
     if ($LASTEXITCODE -ne 0) { Write-Fail "React build failed" }
-    Write-OK "React built → dist/"
+    Write-OK "React built -> frontend/dist/"
 
-    # 3. Deploy dist/ to Azure Static Web Apps using SWA CLI
-    # Static Web Apps is Azure's free hosting for static sites — CDN-backed, HTTPS auto-configured
-    Write-Step "Deploying to Azure Static Web Apps..."
-    $token = az staticwebapp secrets list `
-        --name $STATIC_WEB_APP `
-        --resource-group $RESOURCE_GROUP `
-        --query "properties.apiKey" -o tsv
-
-    npx @azure/static-web-apps-cli deploy ./dist `
-        --deployment-token $token `
-        --env production
-
-    if ($LASTEXITCODE -ne 0) { Write-Fail "Frontend deploy failed" }
-    Write-OK "Frontend deployed!"
     Pop-Location
+
+    Write-Step "Copying frontend build into Django..."
+    $destPath = "$BACKEND_DIR\frontend_build"
+    if (Test-Path $destPath) { Remove-Item $destPath -Recurse -Force }
+    Copy-Item -Path "$FRONTEND_DIR\dist" -Destination $destPath -Recurse
+    Write-OK "Copied to backend/frontend_build/"
+} else {
+    Write-Step "Skipping React build (-SkipBuild flag set)"
+    if (-not (Test-Path "$BACKEND_DIR\frontend_build")) {
+        Write-Fail "backend/frontend_build/ does not exist. Run without -SkipBuild first."
+    }
+    Write-OK "Using existing backend/frontend_build/"
 }
 
-Write-Host "`n🚀 Deployment complete!" -ForegroundColor Green
-Write-Host "   Backend:  https://$APP_SERVICE_NAME.azurewebsites.net"
-Write-Host "   Frontend: check Azure portal for Static Web App URL"
+# =============================================================================
+# STEP 2 — Collect Django static files
+# =============================================================================
+Write-Step "Collecting Django static files..."
+Push-Location $BACKEND_DIR
+
+$env:SECRET_KEY = "placeholder-for-collectstatic"
+$env:DEBUG = "False"
+$env:AZURE_STORAGE_ACCOUNT_NAME = "gasreadingdk2024"
+$env:AZURE_BLOB_CONTAINER_NAME = "meter-images"
+$env:AZURE_COMMUNICATION_ENDPOINT = "https://gasreading-acs.unitedstates.communication.azure.com"
+$env:EMAIL_SENDER_ADDRESS = "placeholder@example.com"
+
+.\venv\Scripts\python manage.py collectstatic --no-input
+if ($LASTEXITCODE -ne 0) { Write-Fail "collectstatic failed" }
+Write-OK "Static files collected"
+
+# =============================================================================
+# STEP 3 — Configure App Service settings
+# =============================================================================
+Write-Step "Configuring App Service settings..."
+az webapp config appsettings set `
+    --name $APP_SERVICE_NAME `
+    --resource-group $RESOURCE_GROUP `
+    --settings "SCM_DO_BUILD_DURING_DEPLOYMENT=true" | Out-Null
+
+az webapp config set `
+    --name $APP_SERVICE_NAME `
+    --resource-group $RESOURCE_GROUP `
+    --startup-file "gunicorn --chdir /home/site/wwwroot config.wsgi:application --workers 1 --timeout 120 --bind 0.0.0.0:8000" | Out-Null
+
+Write-OK "SCM_DO_BUILD_DURING_DEPLOYMENT=true, startup command set"
+
+# =============================================================================
+# STEP 4 — Zip and deploy to Azure App Service
+# Oryx handles pip install. React files are in staticfiles/ (via collectstatic).
+# frontend_build/ is excluded from zip since it's no longer needed at runtime.
+# =============================================================================
+Write-Step "Creating deployment zip..."
+$zipPath = "$env:TEMP\gasreading-backend.zip"
+if (Test-Path $zipPath) { Remove-Item $zipPath }
+
+$items = Get-ChildItem -Path . | Where-Object {
+    $_.Name -notin @('venv', '__pycache__', 'db.sqlite3', '.env', 'logs', '.python_packages', 'antenv', 'frontend_build')
+}
+Compress-Archive -Path $items.FullName -DestinationPath $zipPath -Force
+Write-OK "Zip created: $zipPath"
+
+Write-Step "Uploading to Azure App Service (Kudu zip deploy - triggers Oryx pip install)..."
+az webapp deployment source config-zip `
+    --resource-group $RESOURCE_GROUP `
+    --name $APP_SERVICE_NAME `
+    --src $zipPath
+
+if ($LASTEXITCODE -ne 0) { Write-Fail "Deploy failed" }
+
+Pop-Location
+
+Write-Host ""
+Write-Host "Deployment complete!" -ForegroundColor Green
+Write-Host "   App: https://$APP_SERVICE_NAME.azurewebsites.net"

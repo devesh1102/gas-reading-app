@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.urls import path, include, re_path
+from django.urls import path, include
 from django.http import HttpResponse
 from django.conf import settings
 import os
@@ -7,7 +7,9 @@ import os
 
 def serve_react(request, path=''):
     """Serve React SPA index.html for all non-API, non-admin routes."""
-    index = os.path.join(settings.BASE_DIR, 'frontend_build', 'index.html')
+    # index.html is copied to STATIC_ROOT (staticfiles/) by collectstatic.
+    # Oryx keeps staticfiles/ in wwwroot; frontend_build/ is excluded by Oryx.
+    index = os.path.join(settings.STATIC_ROOT, 'index.html')
     if os.path.exists(index):
         with open(index, 'rb') as f:
             return HttpResponse(f.read(), content_type='text/html')
@@ -19,6 +21,6 @@ urlpatterns = [
     path('api/auth/', include('authentication.urls')),
     path('api/submissions/', include('submissions.urls')),
     # Catch-all: serve React SPA for all non-API routes (supports client-side routing)
-    re_path(r'^(?!api/|admin/).*$', serve_react),
+    path('', serve_react),
+    path('<path:path>', serve_react),
 ]
-

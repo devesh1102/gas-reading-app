@@ -27,16 +27,10 @@ def _get_keyvault_secret(name: str, fallback: str = '') -> str:
                 credential = AzureCliCredential()
             client = SecretClient(vault_url=vault_url, credential=credential)
             value = client.get_secret(name).value
-            print(f'[KeyVault] ✅ Fetched secret: {name}')
+            print(f'[KeyVault] OK Fetched secret: {name}')
             return value
         except Exception as e:
-            print(f'[KeyVault] ❌ Failed to fetch {name}: {e}')
-            raise RuntimeError(
-                f"Key Vault is configured (AZURE_KEYVAULT_URL={vault_url}) "
-                f"but failed to fetch secret '{name}'. "
-                f"Run 'az login' and ensure you have 'Key Vault Secrets User' role. "
-                f"Error: {e}"
-            )
+            print(f'[KeyVault] FAILED to fetch {name}: {e} — falling back to env var')
     return config(name.replace('-', '_'), default=fallback)
 
 
@@ -155,10 +149,16 @@ USE_TZ = True
 # Static files
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+# CompressedStaticFilesStorage compresses but does NOT rename/hash files.
+# This is correct for Vite builds which already include content hashes in filenames.
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 
-# Serve React build assets (JS/CSS) at root level via WhiteNoise
-WHITENOISE_ROOT = BASE_DIR / 'frontend_build'
+# Include the React build in collectstatic so React files land in staticfiles/.
+# Oryx keeps staticfiles/ in wwwroot; frontend_build/ is excluded by Oryx.
+STATICFILES_DIRS = [BASE_DIR / 'frontend_build']
+
+# Serve React build assets (JS/CSS) at root level via WhiteNoise (from staticfiles/)
+WHITENOISE_ROOT = STATIC_ROOT
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

@@ -12,8 +12,9 @@ secrets/
 # Python / Django
 # ============================================================
 backend/venv/
+backend/.venv/
 backend/.python_packages/
-backend/frontend_build/backend/.venv/
+backend/frontend_build/
 __pycache__/
 *.py[cod]
 *.pyo
@@ -63,3 +64,9 @@ Thumbs.db
 # ============================================================
 *.publishsettings
 .azure/
+deploy.zip
+
+# ============================================================
+# Claude Code session memory
+# ============================================================
+.claude/
